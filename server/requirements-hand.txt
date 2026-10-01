@@ -1,0 +1,4 @@
+absl-py>=2,<3
+flatbuffers>=24
+protobuf==4.25.3
+sounddevice>=0.5,<0.6

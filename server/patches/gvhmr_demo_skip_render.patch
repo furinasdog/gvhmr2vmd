@@ -1,0 +1,41 @@
+diff --git a/tools/demo/demo.py b/tools/demo/demo.py
+--- a/tools/demo/demo.py
++++ b/tools/demo/demo.py
+@@ -38,6 +38,11 @@ def parse_args_to_cfg():
+     parser.add_argument("--output_root", type=str, default=None, help="by default to outputs/demo")
+     parser.add_argument("-s", "--static_cam", action="store_true", help="If true, skip DPVO")
+     parser.add_argument("--use_dpvo", action="store_true", help="If true, use DPVO. By default not using DPVO.")
++    parser.add_argument(
++        "--skip_render",
++        action="store_true",
++        help="Save motion parameters without rendering preview videos.",
++    )
+     parser.add_argument(
+         "--f_mm",
+         type=int,
+@@ -67,6 +72,7 @@ def parse_args_to_cfg():
+             f"static_cam={args.static_cam}",
+             f"verbose={args.verbose}",
+             f"use_dpvo={args.use_dpvo}",
++            f"+skip_render={args.skip_render}",
+         ]
+         if args.f_mm is not None:
+             overrides.append(f"f_mm={args.f_mm}")
+@@ -328,8 +334,11 @@ if __name__ == "__main__":
+         torch.save(pred, paths.hmr4d_results)
+ 
+     # ===== Render ===== #
+-    render_incam(cfg)
+-    render_global(cfg)
+-    if not Path(paths.incam_global_horiz_video).exists():
+-        Log.info("[Merge Videos]")
+-        merge_videos_horizontal([paths.incam_video, paths.global_video], paths.incam_global_horiz_video)
++    if cfg.skip_render:
++        Log.info("[Render] Skipped by --skip_render")
++    else:
++        render_incam(cfg)
++        render_global(cfg)
++        if not Path(paths.incam_global_horiz_video).exists():
++            Log.info("[Merge Videos]")
++            merge_videos_horizontal([paths.incam_video, paths.global_video], paths.incam_global_horiz_video)
+

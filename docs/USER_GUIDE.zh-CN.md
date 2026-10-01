@@ -64,6 +64,7 @@ git clone https://github.com/zju3dv/GVHMR.git /work/GVHMR
 cd /work/GVHMR
 conda create -n gvhmr python=3.10
 conda activate gvhmr
+pip install chumpy --no-build-isolation # 解决依赖冲突
 python -m pip install -r requirements.txt
 python -m pip install -e .
 ```

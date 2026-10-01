@@ -60,6 +60,10 @@ class GVHMRMMD_OT_apply(bpy.types.Operator):
                 compensate_arm_rest_pose=props.compensate_arm_rest_pose,
                 apply_hands=props.apply_hands,
                 hand_confidence_threshold=props.hand_confidence_threshold,
+                limit_finger_splay=props.limit_finger_splay,
+                limit_finger_angles=props.limit_finger_angles,
+                finger_max_flexion=props.finger_max_flexion,
+                finger_max_extension=props.finger_max_extension,
             )
             optional = len(result.missing_optional)
             props.status = (

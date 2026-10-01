@@ -75,20 +75,30 @@ def _estimate_height(armature, mapping: dict[str, str]) -> float:
 def _arm_rest_corrections(armature, mapping: dict[str, str]) -> dict[str, Quaternion]:
     """Align an MMD A-pose upper arm with the SMPL zero-pose T-pose.
 
-    The correction is expressed in armature space and is applied after the
-    source shoulder rotation. Children inherit it naturally through Blender's
-    pose hierarchy, so elbow and wrist motion remain relative to the arm.
+    These are GLOBAL rest deltas, not extra local shoulder rotations. Each
+    target global delta is source_global @ correction; remove the corrected
+    parent's delta before converting to Blender's local bone basis.
     """
     corrections = {}
-    for semantic, desired in (
-        ("left_shoulder", Vector((1.0, 0.0, 0.0))),
-        ("right_shoulder", Vector((-1.0, 0.0, 0.0))),
+    for side, desired in (
+        ("left", Vector((1.0, 0.0, 0.0))),
+        ("right", Vector((-1.0, 0.0, 0.0))),
     ):
-        bone = armature.data.bones[mapping[semantic]]
-        rest_direction = bone.tail_local - bone.head_local
-        if rest_direction.length <= 1e-8:
-            continue
-        corrections[semantic] = rest_direction.normalized().rotation_difference(desired)
+        inherited = Quaternion()
+        for joint, child in (("shoulder", "elbow"), ("elbow", "wrist")):
+            semantic = f"{side}_{joint}"
+            bone = armature.data.bones[mapping[semantic]]
+            child_bone = armature.data.bones[mapping[f"{side}_{child}"]]
+            # MMD display tails may point at twist helpers rather than joints.
+            rest_direction = child_bone.head_local - bone.head_local
+            if rest_direction.length <= 1e-8:
+                rest_direction = bone.tail_local - bone.head_local
+            if rest_direction.length > 1e-8:
+                inherited = rest_direction.normalized().rotation_difference(desired)
+            corrections[semantic] = inherited.copy()
+        # Carry the forearm's rest frame into the hand, preserving its own
+        # rest orientation and avoiding an artificial counter-rotation.
+        corrections[f"{side}_wrist"] = inherited.copy()
     return corrections
 
 
@@ -160,6 +170,10 @@ def retarget_motion(
     compensate_arm_rest_pose: bool = True,
     apply_hands: bool = True,
     hand_confidence_threshold: float = 0.35,
+    limit_finger_splay: bool = True,
+    limit_finger_angles: bool = True,
+    finger_max_flexion: float = math.radians(90),
+    finger_max_extension: float = math.radians(10),
 ) -> RetargetResult:
     mapping, _ = validate_armature(armature)
     optional_semantics = {rule.semantic for rule in BONE_RULES if not rule.required}
@@ -224,6 +238,9 @@ def retarget_motion(
 
             rest = rest_rotations[semantic]
             motion_quaternion = Matrix(joint_rotation.tolist()).to_quaternion()
+            parent_correction = rest_pose_corrections.get(parent_semantic)
+            if parent_correction is not None:
+                motion_quaternion = parent_correction.inverted() @ motion_quaternion
             correction = rest_pose_corrections.get(semantic)
             if correction is not None:
                 motion_quaternion = motion_quaternion @ correction
@@ -264,6 +281,10 @@ def retarget_motion(
             start_frame=start_frame,
             frame_step=frame_step,
             confidence_threshold=hand_confidence_threshold,
+            limit_finger_splay=limit_finger_splay,
+            limit_finger_angles=limit_finger_angles,
+            finger_max_flexion=finger_max_flexion,
+            finger_max_extension=finger_max_extension,
         )
 
     for fcurve in action.fcurves:

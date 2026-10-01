@@ -2,9 +2,39 @@
 
 from __future__ import annotations
 
+import math
+
 from mathutils import Matrix, Quaternion, Vector
 
 from .mapping import HAND_BONE_RULES, resolve_hand_bone_map
+
+
+def _flexion_only(
+    delta: Quaternion, rest_direction: Vector, palm_normal: Vector,
+    *, flexion_sign: float = 1.0, angle_limits: tuple[float, float] | None = None,
+) -> Quaternion:
+    """Project joint motion onto its rest finger/palm-normal flexion plane.
+
+    Compute the hinge in armature space so mirrored hands and arbitrary bone
+    roll do not depend on a hard-coded Blender Euler axis. This also preserves
+    the model's resting finger spread, including the thumb.
+    """
+    axis = palm_normal.cross(rest_direction)
+    if axis.length <= 1e-8:
+        return Quaternion()
+    axis.normalize()
+    desired = delta @ rest_direction
+    desired -= axis * desired.dot(axis)
+    if desired.length <= 1e-8:
+        return Quaternion()
+    desired.normalize()
+    angle = math.atan2(axis.dot(rest_direction.cross(desired)), rest_direction.dot(desired))
+    if angle_limits is not None:
+        # The index-to-little palm basis has opposite normal polarity on the
+        # two hands. Clamp anatomical flexion, not the raw signed hinge angle.
+        lower, upper = angle_limits
+        angle = flexion_sign * max(lower, min(upper, flexion_sign * angle))
+    return Quaternion(axis, angle)
 
 
 def _palm_basis(armature, body_mapping, hand_mapping, side: str) -> Matrix:
@@ -34,12 +64,23 @@ def retarget_hands(
     start_frame: int,
     frame_step: float,
     confidence_threshold: float,
+    limit_finger_splay: bool = True,
+    limit_finger_angles: bool = True,
+    finger_max_flexion: float = math.radians(90),
+    finger_max_extension: float = math.radians(10),
 ) -> tuple[int, int]:
     """Insert finger keys into the currently assigned action.
 
     Returns ``(mapped_bones, keyed_hand_frames)``. A side is skipped when its
     landmarks or the three palm-reference finger roots are unavailable.
     """
+    if not all(math.isfinite(v) and 0 <= v <= math.pi for v in (
+        finger_max_flexion, finger_max_extension
+    )):
+        raise ValueError("手指屈伸角度必须为 0 到 180 度之间的有限值")
+    angle_limits = (
+        (-finger_max_extension, finger_max_flexion) if limit_finger_angles else None
+    )
     hand_mapping, _missing = resolve_hand_bone_map(b.name for b in armature.data.bones)
     mapped_count = len(hand_mapping)
     keyed_frames = 0
@@ -90,6 +131,12 @@ def retarget_hands(
                 joint_delta = global_deltas[rule.semantic]
                 if rule.parent_semantic in global_deltas:
                     joint_delta = global_deltas[rule.parent_semantic].inverted() @ joint_delta
+                if limit_finger_splay:
+                    joint_delta = _flexion_only(
+                        joint_delta, rest_directions[rule.semantic], palm_basis.col[2],
+                        flexion_sign=1.0 if side == "left" else -1.0,
+                        angle_limits=angle_limits,
+                    )
                 rest = rest_rotations[rule.semantic]
                 basis = rest.inverted() @ joint_delta @ rest
                 basis.normalize()

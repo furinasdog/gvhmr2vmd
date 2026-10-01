@@ -235,6 +235,8 @@ This creates `dist/gvhmr_mmd_bridge.zip`.
 - **Automatic root translation scale**: convert metres from skeleton height;
 - **Flip forward 180°**: use when the character faces backward;
 - **Correct MMD arm rest angle**: compensate MMD A-pose versus SMPL T-pose;
+- **手指仅前后屈伸 (Finger flexion only)**: enabled by default; removes sideways motion and twist from all finger joints, including thumbs, while preserving the model's resting spread. Disable to retain full finger rotations. Reapply motion after changing this setting.
+- **限制屈伸角度 (Limit finger angles)**: enabled by default within finger flexion mode. Each joint, including thumbs, is limited to 90° flexion and 10° extension relative to its rest pose. Adjust for your model; set maximum extension to 0° to prevent backward bending. Reapply motion to bake new limits. This does not detect finger collisions.
 - **Apply finger motion**: drive 30 finger bones when hand data is present;
 - **Hand confidence threshold**: default 0.35; raise for jitter, lower for missing keys;
 - **Mute IK constraints**: prevent MMD foot IK from overriding FK leg motion.

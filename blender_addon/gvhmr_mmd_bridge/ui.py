@@ -29,6 +29,12 @@ class GVHMRMMD_PT_panel(bpy.types.Panel):
         box.prop(props, "compensate_arm_rest_pose")
         box.prop(props, "apply_hands")
         if props.apply_hands:
+            box.prop(props, "limit_finger_splay")
+            if props.limit_finger_splay:
+                box.prop(props, "limit_finger_angles")
+                if props.limit_finger_angles:
+                    box.prop(props, "finger_max_flexion")
+                    box.prop(props, "finger_max_extension")
             box.prop(props, "hand_confidence_threshold")
         box.prop(props, "disable_ik")
 

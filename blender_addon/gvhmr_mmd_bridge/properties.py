@@ -1,5 +1,7 @@
 """Scene properties for the add-on UI."""
 
+import math
+
 import bpy
 from bpy.props import BoolProperty, FloatProperty, IntProperty, PointerProperty, StringProperty
 
@@ -45,7 +47,7 @@ class GVHMRMMDProperties(bpy.types.PropertyGroup):
     )
     compensate_arm_rest_pose: BoolProperty(
         name="校正 MMD 手臂静止角度",
-        description="把 MMD 的斜向下 A-Pose 上臂自动对齐到 GVHMR/SMPL 的 T-Pose",
+        description="按骨骼位置校正 A-Pose 上臂与前臂，并同步转换肘部和手腕的旋转坐标系",
         default=True,
     )
     disable_ik: BoolProperty(
@@ -57,6 +59,26 @@ class GVHMRMMDProperties(bpy.types.PropertyGroup):
         name="应用手指动作",
         description="NPZ 包含手部识别结果时，为 MMD 手指骨骼生成关键帧",
         default=True,
+    )
+    limit_finger_splay: BoolProperty(
+        name="手指仅前后屈伸",
+        description="限制所有指节（含拇指）的侧向摆动和扭转，保留模型初始张开角度",
+        default=True,
+    )
+    limit_finger_angles: BoolProperty(
+        name="限制屈伸角度",
+        description="在仅前后屈伸模式下，限制每个指节相对模型初始姿态的屈伸幅度（含拇指）",
+        default=True,
+    )
+    finger_max_flexion: FloatProperty(
+        name="最大内弯",
+        description="每个指节向掌心方向弯曲的最大角度；应按模型调整",
+        subtype="ANGLE", default=math.radians(90), min=0.0, max=math.pi,
+    )
+    finger_max_extension: FloatProperty(
+        name="最大后伸",
+        description="每个指节向手背方向伸展的最大角度；设为 0 可禁止后伸",
+        subtype="ANGLE", default=math.radians(10), min=0.0, max=math.pi,
     )
     hand_confidence_threshold: FloatProperty(
         name="手部置信度阈值",

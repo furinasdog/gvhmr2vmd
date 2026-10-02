@@ -19,7 +19,7 @@ Highlights:
 Quick start:
 
 1. Follow the [full English manual](docs/USER_GUIDE.en.md) to deploy the server integration.
-2. Run `python tools/package_addon.py` to create `dist/gvhmr_mmd_bridge.zip`.
+2. Download `gvhmr_mmd_bridge.zip` from [Releases](https://github.com/furinasdog/gvhmr2vmd/releases), or run `make build` to build it in `dist/`.
 3. Install the ZIP in Blender 4.5 and import the PMX with mmd_tools.
 4. Select the NPZ and armature in the “GVHMR MMD” panel, validate, and apply.
 
@@ -51,6 +51,19 @@ python tools/package_addon.py
 
 The Blender and real-PMX integration commands are documented in the manuals. Local PMX files,
 videos, checkpoints, inference outputs, and generated add-on archives are ignored by Git.
+
+## Releases
+
+The **Build and release** GitHub Actions workflow runs `make build`, verifies the
+ZIP contents and Python syntax, and publishes the add-on plus `SHA256SUMS` to
+GitHub Releases. It needs no custom token or server dependencies.
+
+- Push a version tag such as `v0.2.0` to publish that commit automatically.
+- Alternatively, open **Actions → Build and release → Run workflow**, select the
+  branch or tag to build, and enter a release tag. A missing tag is created at
+  the built commit; an existing tag must point to that same commit.
+- Tags with a suffix such as `v0.3.0-beta.1` create prereleases. Published releases
+  are never overwritten; a failed upload can be retried while the release is a draft.
 
 ## Project status
 

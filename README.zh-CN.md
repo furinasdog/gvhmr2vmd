@@ -19,7 +19,7 @@ MMD 骨架。
 快速开始：
 
 1. 按[中文完整手册](docs/USER_GUIDE.zh-CN.md)部署 GVHMR 服务器集成。
-2. 执行 `python tools/package_addon.py` 生成 `dist/gvhmr_mmd_bridge.zip`。
+2. 从 [Releases](https://github.com/furinasdog/gvhmr2vmd/releases) 下载 `gvhmr_mmd_bridge.zip`，或执行 `make build` 在 `dist/` 中构建。
 3. 在 Blender 4.5 中从磁盘安装 ZIP，并用 mmd_tools 导入 PMX。
 4. 在“GVHMR MMD”面板选择 NPZ 和 Armature，检查映射后应用动作。
 
@@ -27,3 +27,14 @@ MMD 骨架。
 > 本仓库代码采用 GPL-3.0-or-later，但 GVHMR 上游许可证仅允许教育、研究和非营利用途。
 > SMPL、SMPL-X、MANO、模型权重以及 PMX 模型均有各自许可，且不包含在本仓库中。
 > 详见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+## 自动发布
+
+**Build and release** 工作流执行 `make build`，校验 ZIP 内容和 Python 语法，
+然后将插件 ZIP 与 `SHA256SUMS` 发布到 GitHub Release，无需额外配置令牌或服务器依赖。
+
+- 推送 `v0.2.0` 这类版本标签，自动构建并发布该提交。
+- 也可在 **Actions → Build and release → Run workflow** 选择分支或标签，
+  填写发布标签后手动执行。新标签指向本次构建的提交；已有标签必须指向同一提交。
+- `v0.3.0-beta.1` 这类带后缀的标签发布为预发布版本。已发布的 Release 不会被覆盖；
+  上传失败且 Release 仍为草稿时，可以重新运行。

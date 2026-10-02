@@ -1,0 +1,105 @@
+name: Build and release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (for example v0.2.0); builds the selected ref'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Validate release tag
+        id: release
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          tag="${REQUESTED_TAG:-$GITHUB_REF_NAME}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Expected a version tag such as v0.2.0 or v0.3.0-beta.1"
+            exit 1
+          fi
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            tagged_commit="$(git rev-parse "refs/tags/$tag^{commit}")"
+            if [[ "$tagged_commit" != "$(git rev-parse HEAD)" ]]; then
+              echo "::error::Tag $tag points to a different commit; select that tag or use a new version."
+              exit 1
+            fi
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Build Blender add-on
+        run: make build
+
+      - name: Verify release archive
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          root = Path("blender_addon/gvhmr_mmd_bridge")
+          sources = sorted(root.rglob("*.py"))
+          expected = {f"gvhmr_mmd_bridge/{p.relative_to(root).as_posix()}": p for p in sources}
+          expected["gvhmr_mmd_bridge/LICENSE"] = Path("LICENSE")
+          with ZipFile("dist/gvhmr_mmd_bridge.zip") as archive:
+              assert archive.testzip() is None, "Corrupt ZIP member"
+              assert set(archive.namelist()) == set(expected), "Unexpected or missing ZIP members"
+              for name, source in expected.items():
+                  content = archive.read(name)
+                  assert content == source.read_bytes(), f"Stale ZIP member: {name}"
+                  if name.endswith(".py"):
+                      compile(content, name, "exec")
+          print("Verified add-on source, Python syntax, and license in release ZIP")
+          PY
+          cd dist
+          sha256sum gvhmr_mmd_bridge.zip > SHA256SUMS
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          if draft="$(gh release view "$TAG" --json isDraft --jq '.isDraft' 2>/dev/null)"; then
+            target="$(gh release view "$TAG" --json targetCommitish --jq '.targetCommitish')"
+            if [[ "$draft" != "true" || "$target" != "$GITHUB_SHA" ]]; then
+              echo "::error::Release $TAG already exists; published releases will not be overwritten."
+              exit 1
+            fi
+          else
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "$TAG" \
+              --generate-notes --draft
+          fi
+          gh release upload "$TAG" dist/gvhmr_mmd_bridge.zip dist/SHA256SUMS --clobber
+          if [[ "$TAG" == *-* ]]; then
+            gh release edit "$TAG" --draft=false --prerelease --latest=false
+          else
+            gh release edit "$TAG" --draft=false --latest
+          fi
+          url="$(gh release view "$TAG" --json url --jq '.url')"
+          echo "Published [$TAG]($url) with the Blender add-on ZIP and SHA256SUMS." >> "$GITHUB_STEP_SUMMARY"

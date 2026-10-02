@@ -42,7 +42,7 @@ class GVHMRMMDProperties(bpy.types.PropertyGroup):
     )
     flip_forward: BoolProperty(
         name="反转朝向 180°",
-        description="当角色整体背对预期方向时启用",
+        description="将整体朝向和位移轨迹绕骨架 Z 轴旋转 180°，保持关节相对动作；需重新应用动作",
         default=False,
     )
     compensate_arm_rest_pose: BoolProperty(

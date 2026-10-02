@@ -225,7 +225,12 @@ def axis_angle_to_matrix(axis_angle: np.ndarray) -> np.ndarray:
 
 
 def smpl_global_rotations(motion: MotionData, *, flip_forward: bool = False) -> np.ndarray:
-    """Return `[F,22,3,3]` joint rotations expressed in Blender axes."""
+    """Return `[F,22,3,3]` rotations, optionally turning the whole motion.
+
+    The heading flip is an armature-space rotation applied after the fixed
+    SMPL-to-Blender basis conversion. Left-multiplying all global rotations
+    turns the root while leaving parent-relative joint rotations unchanged.
+    """
     local_axis_angle = np.concatenate(
         (motion.global_orient[:, None, :], motion.body_pose),
         axis=1,
@@ -238,11 +243,12 @@ def smpl_global_rotations(motion: MotionData, *, flip_forward: bool = False) -> 
         else:
             global_smpl[:, joint] = global_smpl[:, parent] @ local[:, joint]
 
-    basis = SMPL_TO_BLENDER.copy()
+    basis = SMPL_TO_BLENDER
+    global_blender = basis @ global_smpl @ basis.T
     if flip_forward:
         flip = np.diag((-1.0, -1.0, 1.0))
-        basis = flip @ basis
-    return basis @ global_smpl @ basis.T
+        global_blender = flip @ global_blender
+    return global_blender
 
 
 def blender_translation(motion: MotionData, *, flip_forward: bool = False) -> np.ndarray:

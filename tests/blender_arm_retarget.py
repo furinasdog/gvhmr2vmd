@@ -104,13 +104,14 @@ def check(upper_angle, lower_angle, helpers=False, enabled=True, flip=False):
             np.testing.assert_allclose(direction, expected, atol=2e-5)
 
 
-for args in (
-    (0.7, 0.7),
-    (0.7, 0.4),
-    (0., 0.),
-    (0.7, 0.4, True),
-    (0.7, 0.4, False, False),
-    (0.7, 0.4, True, True, True),
-):
-    check(*args)
-print("PASS: 6 rigs, 24 frames, both arms and wrists (144 direction checks)")
+if __name__ == "__main__":
+    for args in (
+        (0.7, 0.7),
+        (0.7, 0.4),
+        (0., 0.),
+        (0.7, 0.4, True),
+        (0.7, 0.4, False, False),
+        (0.7, 0.4, True, True, True),
+    ):
+        check(*args)
+    print("PASS: 6 rigs, 24 frames, both arms and wrists (144 direction checks)")

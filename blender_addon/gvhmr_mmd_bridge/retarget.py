@@ -203,7 +203,10 @@ def retarget_motion(
     action = bpy.data.actions.new(_action_name(motion))
     armature.animation_data.action = action
 
-    source_global = smpl_global_rotations(motion, flip_forward=flip_forward)
+    # Keep relative joint rotations and quaternion continuity identical to the
+    # unflipped action. Apply the heading turn to each mapped root only, after
+    # quaternion signs have been chosen (also preserves interpolation at 180°).
+    source_global = smpl_global_rotations(motion)
     root_translation = blender_translation(motion, flip_forward=flip_forward)
     reverse_map = {bone_name: semantic for semantic, bone_name in mapping.items()}
     parent_semantics = {
@@ -213,6 +216,11 @@ def retarget_motion(
     rest_rotations = {
         semantic: armature.data.bones[bone_name].matrix_local.to_quaternion()
         for semantic, bone_name in mapping.items()
+    }
+    heading_corrections = {
+        semantic: rest.inverted() @ Quaternion((0.0, 0.0, 0.0, 1.0)) @ rest
+        for semantic, rest in rest_rotations.items()
+        if flip_forward and parent_semantics[semantic] is None
     }
     rest_pose_corrections = (
         _arm_rest_corrections(armature, mapping)
@@ -250,6 +258,11 @@ def retarget_motion(
             if previous is not None:
                 basis_quaternion.make_compatible(previous)
             previous_quaternions[bone_name] = basis_quaternion.copy()
+
+            heading = heading_corrections.get(semantic)
+            if heading is not None:
+                basis_quaternion = heading @ basis_quaternion
+                basis_quaternion.normalize()
 
             pose_bone.rotation_mode = "QUATERNION"
             pose_bone.rotation_quaternion = basis_quaternion

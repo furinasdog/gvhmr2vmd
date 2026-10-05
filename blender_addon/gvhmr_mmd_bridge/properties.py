@@ -3,7 +3,14 @@
 import math
 
 import bpy
-from bpy.props import BoolProperty, FloatProperty, IntProperty, PointerProperty, StringProperty
+from bpy.props import (
+    BoolProperty,
+    EnumProperty,
+    FloatProperty,
+    IntProperty,
+    PointerProperty,
+    StringProperty,
+)
 
 
 def _armature_poll(_self, obj):
@@ -23,6 +30,37 @@ class GVHMRMMDProperties(bpy.types.PropertyGroup):
         poll=_armature_poll,
     )
     start_frame: IntProperty(name="起始帧", default=1, min=-100000, max=100000)
+    source_start: IntProperty(
+        name="源起始帧", description="从 NPZ 的第几帧开始（从 1 计数，包含此帧）",
+        default=1, min=1,
+    )
+    source_end: IntProperty(
+        name="源结束帧", description="包含此帧；0 表示直到文件末尾",
+        default=0, min=0,
+    )
+    speed: FloatProperty(
+        name="播放速度", description="2 为两倍速，0.5 为半速；身体和手指同步变速",
+        default=1.0, min=0.1, max=4.0,
+    )
+    rotation_smoothing: FloatProperty(
+        name="身体旋转平滑（秒）",
+        description="居中时间窗口降低身体和整体朝向的抖动；0 关闭，过大会削弱快速动作",
+        default=0.0, min=0.0, max=0.5, precision=3,
+    )
+    translation_smoothing: FloatProperty(
+        name="根位移平滑（秒）",
+        description="平滑整体移动轨迹；0 关闭，不会锁定脚部接触点",
+        default=0.0, min=0.0, max=0.5, precision=3,
+    )
+    root_motion: EnumProperty(
+        name="根位移模式",
+        items=(
+            ("FULL", "完整位移", "保留前后、左右和上下移动"),
+            ("IN_PLACE", "原地（保留高度）", "移除水平移动，保留跳跃和上下起伏"),
+            ("NONE", "固定位置", "移除全部根位移，保留身体旋转"),
+        ),
+        default="FULL",
+    )
     sync_fps: BoolProperty(
         name="使用动作帧率",
         description="把场景帧率设为 NPZ 中的帧率；关闭时会按当前场景帧率重采样时间",

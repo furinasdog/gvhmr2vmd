@@ -88,6 +88,7 @@ export GVHMR_ROOT=/work/GVHMR
 
 cp "$BRIDGE_ROOT/server/gvhmr_export.py" "$GVHMR_ROOT/"
 cp "$BRIDGE_ROOT/server/webui.py" "$GVHMR_ROOT/"
+cp "$BRIDGE_ROOT/server/progress.py" "$GVHMR_ROOT/"
 cp "$BRIDGE_ROOT/server/hand_pose_mediapipe.py" "$GVHMR_ROOT/"
 git -C "$GVHMR_ROOT" apply "$BRIDGE_ROOT/server/patches/gvhmr_demo_skip_render.patch"
 ```
@@ -160,6 +161,17 @@ The WebUI refuses an unauthenticated non-local bind. Never commit credentials.
 - enable “Static camera” for a locked camera;
 - avoid unnecessary recompression;
 - multi-person subject selection is not currently guaranteed.
+
+### Live progress
+
+The progress label follows the current GVHMR stage: tracking, camera motion (when enabled),
+2D pose, image features, body inference, preview rendering, NPZ export, and optional hand
+recognition. Percentages come from logged frame/item counts for the **current stage**, not an
+estimate of total running time. Stages without counts show an activity indicator; cached stages
+may be skipped. A failed or partial run is not reported as fully complete.
+
+Progress monitoring reads subprocess output and does not modify GVHMR source files. When
+updating an existing server, copy both `webui.py` and `progress.py`, then restart the WebUI.
 
 ### WebUI options
 
@@ -244,6 +256,36 @@ This creates `dist/gvhmr_mmd_bridge.zip`.
 Each application creates and assigns a new Action. Older Actions are retained for comparison and
 rollback.
 
+### Clip, speed, and motion cleanup
+
+All new controls take effect when applying the motion again:
+
+| Control | Behavior |
+| --- | --- |
+| Source start / end | Inclusive frame numbers starting at 1; end = 0 means the last frame. |
+| Playback speed | 0.1–4.0; 2 means double speed, 0.5 means half speed. Hands stay synchronized. |
+| Body rotation smoothing | Centered quaternion smoothing in seconds, including root orientation; 0 disables it. |
+| Root translation smoothing | Centered trajectory smoothing in seconds; 0 disables it. |
+| Full translation | Preserve horizontal and vertical travel. |
+| In place, keep height | Remove horizontal travel while retaining jumps and vertical movement. |
+| Fixed position | Remove all root translation, retaining body rotations. |
+
+Start with a smoothing window around **0.10 seconds** and compare it with 0. Larger windows
+can weaken fast movements; windows shorter than one source frame have no effect. Body smoothing
+does not filter finger landmarks. Translation smoothing and in-place mode do not implement foot
+contact locking, so they cannot guarantee planted feet.
+
+Crop first, then smooth only the selected segment. Root displacement starts at zero for that
+segment. Speed changes keyframe spacing; **Use motion FPS** still sets the scene to the original
+source FPS. With it off, the current scene FPS is kept. Source frames 31–61 at 30 FPS span one
+second; at 2× speed they span half a second. A single pose has zero duration. Validation shows
+the selected frame count and duration.
+
+Every application creates a new Action and marks the previous Action to be kept when saving.
+Select an earlier Action in the Action Editor to compare versions. The source NPZ is unchanged.
+Clip, speed, smoothing and root-mode settings are recorded in the Action custom property
+`gvhmr_mmd_settings`.
+
 ## 10. Cleanup and VMD export
 
 - Inspect foot sliding, hand jitter, and occlusion segments in the Graph Editor.
@@ -266,6 +308,19 @@ Use the latest add-on. mmd_tools converts names such as `左腕` to Blender `.L/
 
 Keep arm-rest correction enabled for a standard MMD A-pose. Disable it for a true T-pose model.
 
+### Crossed arms separate or wrists rotate incorrectly
+
+Models with shoulder P/C helpers now drive the actual shoulder bone first. Animating shoulder P
+can be canceled by shoulder C and rotate the entire arm and wrist away from the source motion.
+Reinstall the new add-on, restart Blender, and apply the existing NPZ again. The new Action
+keys neutral pose rotations on the replaced shoulder-P controls, including values left by an
+older import; the PMX rest pose, bone roll, A-pose correction and shoulder-C constraints are kept.
+There is no need to rerun inference for this retargeting fix.
+
+The bottom of the panel shows the Git commit embedded by `make build`. `(dirty)` means the
+checkout contained uncommitted changes at packaging time. Source-only installs or builds without
+Git show `development (unknown)`; the add-on does not need Git installed at runtime.
+
 ### Fingers do not move
 
 Confirm the NPZ is v2, the WebUI printed hand detection rates, and finger motion is enabled.
@@ -283,7 +338,7 @@ when necessary.
 
 ### WebUI does not start
 
-Run `python tools/webui_smoke_test.py`, verify checkpoints, Gradio, and the port. A public bind
+Inspect the WebUI startup log and verify checkpoints, Gradio, and the port. A public bind
 requires authentication.
 
 ### MediaPipe upgraded NumPy

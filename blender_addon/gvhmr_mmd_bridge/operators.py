@@ -8,6 +8,7 @@ import bpy
 
 from .core import load_motion
 from .mapping import BONE_RULES, resolve_bone_map
+from .processing import prepare_motion
 from .retarget import restore_ik_constraints, retarget_motion
 
 
@@ -23,11 +24,16 @@ class GVHMRMMD_OT_validate(bpy.types.Operator):
             motion = load_motion(bpy.path.abspath(props.motion_path))
             if props.armature is None or props.armature.type != "ARMATURE":
                 raise ValueError("请选择一个 MMD Armature")
+            motion = prepare_motion(
+                motion, source_start=props.source_start, source_end=props.source_end,
+                speed=props.speed, rotation_smoothing=props.rotation_smoothing,
+                translation_smoothing=props.translation_smoothing, root_motion=props.root_motion,
+            )
             mapping, missing = resolve_bone_map(b.name for b in props.armature.data.bones)
             if missing:
                 raise ValueError("缺少必需骨骼: " + ", ".join(missing))
             props.status = (
-                f"✓ {motion.frame_count} 帧 @ {motion.fps:g} FPS；"
+                f"✓ {motion.frame_count} 帧，时长 {(motion.frame_count - 1) / motion.fps:.2f} 秒；"
                 f"识别 {len(mapping)}/{len(BONE_RULES)} 根主骨骼"
             )
             self.report({"INFO"}, props.status)
@@ -52,6 +58,12 @@ class GVHMRMMD_OT_apply(bpy.types.Operator):
                 props.armature,
                 motion,
                 start_frame=props.start_frame,
+                source_start=props.source_start,
+                source_end=props.source_end,
+                speed=props.speed,
+                rotation_smoothing=props.rotation_smoothing,
+                translation_smoothing=props.translation_smoothing,
+                root_motion=props.root_motion,
                 auto_scale=props.auto_scale,
                 manual_scale=props.manual_scale,
                 flip_forward=props.flip_forward,
@@ -72,6 +84,8 @@ class GVHMRMMD_OT_apply(bpy.types.Operator):
             )
             if optional:
                 props.status += f"（跳过 {optional} 根可选骨骼）"
+            if result.neutralized_shoulder_helpers:
+                props.status += f"；已复位 {result.neutralized_shoulder_helpers} 根肩P辅助骨"
             if result.keyed_hand_frames:
                 props.status += (
                     f"；手指 {result.mapped_hand_bones}/30 根，"

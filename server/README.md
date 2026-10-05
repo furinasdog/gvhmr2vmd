@@ -12,9 +12,13 @@ export GVHMR_ROOT=/path/to/GVHMR
 
 cp "$BRIDGE_ROOT/server/gvhmr_export.py" "$GVHMR_ROOT/"
 cp "$BRIDGE_ROOT/server/webui.py" "$GVHMR_ROOT/"
+cp "$BRIDGE_ROOT/server/progress.py" "$GVHMR_ROOT/"
 cp "$BRIDGE_ROOT/server/hand_pose_mediapipe.py" "$GVHMR_ROOT/"
-git -C "$GVHMR_ROOT" apply "$BRIDGE_ROOT/server/patches/gvhmr_demo_skip_render.patch"
 ```
+
+仅更新进度显示时，复制 `webui.py` 和 `progress.py` 后重启 WebUI 即可，
+无需修改 GVHMR 代码。已有的可选 `gvhmr_demo_skip_render.patch` 仅用于让旧版上游
+支持关闭预览渲染；不应用该补丁时，在不支持 `--skip_render` 的版本中保持预览渲染开启。
 
 在 GVHMR Python 3.10 环境安装：
 
@@ -51,9 +55,14 @@ export GVHMR_ROOT=/path/to/GVHMR
 
 cp "$BRIDGE_ROOT/server/gvhmr_export.py" "$GVHMR_ROOT/"
 cp "$BRIDGE_ROOT/server/webui.py" "$GVHMR_ROOT/"
+cp "$BRIDGE_ROOT/server/progress.py" "$GVHMR_ROOT/"
 cp "$BRIDGE_ROOT/server/hand_pose_mediapipe.py" "$GVHMR_ROOT/"
-git -C "$GVHMR_ROOT" apply "$BRIDGE_ROOT/server/patches/gvhmr_demo_skip_render.patch"
 ```
+
+For a progress-only update, replace `webui.py` and `progress.py` and restart the WebUI.
+No GVHMR patch is required. The existing optional `gvhmr_demo_skip_render.patch` concerns only
+disabling preview rendering on older upstream versions; keep previews enabled when your
+unpatched GVHMR does not support `--skip_render`.
 
 Install inside the GVHMR Python 3.10 environment:
 

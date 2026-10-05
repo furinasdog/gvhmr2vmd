@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-import math
 import json
+import math
 from dataclasses import dataclass
 
 import bpy
 from mathutils import Matrix, Quaternion, Vector
 
 from .core import MotionData, blender_translation, smpl_global_rotations
-from .mapping import BONE_RULES, RULE_BY_SEMANTIC, resolve_bone_map
 from .hand_retarget import retarget_hands
-
+from .mapping import BONE_RULES, RULE_BY_SEMANTIC, resolve_bone_map
+from .processing import prepare_motion
 
 IK_STATE_KEY = "gvhmr_mmd_previous_mute"
 NOMINAL_SMPL_HEIGHT_METERS = 1.70
@@ -27,6 +27,7 @@ class RetargetResult:
     translation_scale: float
     mapped_hand_bones: int = 0
     keyed_hand_frames: int = 0
+    neutralized_shoulder_helpers: int = 0
 
 
 def validate_armature(armature) -> tuple[dict[str, str], list[str]]:
@@ -46,6 +47,29 @@ def _mapped_parent_semantic(armature, bone_name: str, reverse_map: dict[str, str
             return semantic
         bone = bone.parent
     return None
+
+
+def _shoulder_rotation_helpers(armature, mapping: dict[str, str]) -> list[str]:
+    """Find shoulder-P ancestors replaced by the actual deforming shoulder.
+
+    Their inverse shoulder-C constraints remain enabled. Neutral pose rotation
+    preserves the model rest matrices and clears keys left by older imports.
+    """
+    helpers = []
+    mapped_names = set(mapping.values())
+    for side, jp, suffix in (("left", "左", "L"), ("right", "右", "R")):
+        collar = mapping.get(f"{side}_collar")
+        if collar is None:
+            continue
+        candidates = {
+            name.casefold() for name in (f"{jp}肩P", f"肩P.{suffix}", f"shoulderP_{suffix}")
+        }
+        bone = armature.data.bones[collar].parent
+        while bone is not None and bone.name not in mapped_names:
+            if bone.name.casefold() in candidates:
+                helpers.append(bone.name)
+            bone = bone.parent
+    return helpers
 
 
 def _estimate_height(armature, mapping: dict[str, str]) -> float:
@@ -162,6 +186,12 @@ def retarget_motion(
     motion: MotionData,
     *,
     start_frame: int = 1,
+    source_start: int = 1,
+    source_end: int = 0,
+    speed: float = 1.0,
+    rotation_smoothing: float = 0.0,
+    translation_smoothing: float = 0.0,
+    root_motion: str = "FULL",
     auto_scale: bool = True,
     manual_scale: float = 1.0,
     flip_forward: bool = False,
@@ -175,39 +205,38 @@ def retarget_motion(
     finger_max_flexion: float = math.radians(90),
     finger_max_extension: float = math.radians(10),
 ) -> RetargetResult:
+    source_fps = motion.fps
+    motion = prepare_motion(
+        motion, source_start=source_start, source_end=source_end, speed=speed,
+        rotation_smoothing=rotation_smoothing,
+        translation_smoothing=translation_smoothing, root_motion=root_motion,
+    )
+    # Normalize accepted NumPy scalars before serializing or changing Blender state.
+    source_start = int(source_start)
+    speed = float(speed)
+    settings_json = json.dumps({
+        "source_name": motion.source_name, "source_start": source_start,
+        "source_end": source_start + motion.frame_count - 1, "speed": speed,
+        "rotation_smoothing": float(rotation_smoothing),
+        "translation_smoothing": float(translation_smoothing), "root_motion": root_motion,
+    }, ensure_ascii=False)
     mapping, _ = validate_armature(armature)
     optional_semantics = {rule.semantic for rule in BONE_RULES if not rule.required}
     missing_optional = tuple(sorted(optional_semantics.difference(mapping)))
 
-    if disable_ik:
-        mute_ik_constraints(armature)
-
     if auto_scale:
         translation_scale = _estimate_height(armature, mapping) / NOMINAL_SMPL_HEIGHT_METERS
     else:
-        if manual_scale <= 0:
+        if not math.isfinite(manual_scale) or manual_scale <= 0:
             raise ValueError("手动根位移比例必须大于零")
         translation_scale = float(manual_scale)
-
-    scene = bpy.context.scene
-    if sync_fps:
-        rounded_fps = max(1, int(round(motion.fps)))
-        scene.render.fps = rounded_fps
-        scene.render.fps_base = rounded_fps / motion.fps
-        frame_step = 1.0
-    else:
-        scene_fps = scene.render.fps / scene.render.fps_base
-        frame_step = scene_fps / motion.fps
-
-    armature.animation_data_create()
-    action = bpy.data.actions.new(_action_name(motion))
-    armature.animation_data.action = action
 
     # Keep relative joint rotations and quaternion continuity identical to the
     # unflipped action. Apply the heading turn to each mapped root only, after
     # quaternion signs have been chosen (also preserves interpolation at 180°).
     source_global = smpl_global_rotations(motion)
     root_translation = blender_translation(motion, flip_forward=flip_forward)
+    shoulder_helpers = _shoulder_rotation_helpers(armature, mapping)
     reverse_map = {bone_name: semantic for semantic, bone_name in mapping.items()}
     parent_semantics = {
         semantic: _mapped_parent_semantic(armature, bone_name, reverse_map)
@@ -227,6 +256,39 @@ def retarget_motion(
         if compensate_arm_rest_pose
         else {}
     )
+
+    scene = bpy.context.scene
+    if sync_fps:
+        rounded_fps = max(1, int(round(source_fps)))
+        scene.render.fps = rounded_fps
+        scene.render.fps_base = rounded_fps / source_fps
+        frame_step = 1.0 / speed
+    else:
+        scene_fps = scene.render.fps / scene.render.fps_base
+        frame_step = scene_fps / motion.fps
+
+    if disable_ik:
+        mute_ik_constraints(armature)
+
+    armature.animation_data_create()
+    action = bpy.data.actions.new(_action_name(motion))
+    previous_action = armature.animation_data.action
+    if previous_action is not None:
+        previous_action.use_fake_user = True
+    armature.animation_data.action = action
+    action["gvhmr_mmd_settings"] = settings_json
+
+    # Key the neutral pose as well as assigning it: a previous action may have
+    # left a nonzero helper rotation at the current frame. Rest geometry stays intact.
+    end_frame = start_frame + (motion.frame_count - 1) * frame_step
+    for bone_name in shoulder_helpers:
+        pose_bone = armature.pose.bones[bone_name]
+        pose_bone.rotation_mode = "QUATERNION"
+        pose_bone.rotation_quaternion = Quaternion()
+        for frame in sorted({float(start_frame), float(end_frame)}):
+            pose_bone.keyframe_insert(
+                data_path="rotation_quaternion", frame=frame, group=bone_name,
+            )
 
     previous_quaternions: dict[str, Quaternion] = {}
     ordered = [rule for rule in BONE_RULES if rule.semantic in mapping]
@@ -317,4 +379,5 @@ def retarget_motion(
         translation_scale=translation_scale,
         mapped_hand_bones=mapped_hand_bones,
         keyed_hand_frames=keyed_hand_frames,
+        neutralized_shoulder_helpers=len(shoulder_helpers),
     )

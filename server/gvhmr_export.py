@@ -14,7 +14,6 @@ from pathlib import Path
 
 import numpy as np
 
-
 FORMAT_VERSION = 2
 
 
@@ -43,9 +42,14 @@ def build_payload(pred: dict, *, fps: float = 30.0, source_name: str = "") -> di
         raise ValueError("Missing global SMPL parameters: " + ", ".join(missing))
 
     body_pose = _to_numpy(params["body_pose"], "body_pose")
-    if body_pose.ndim in (3, 4) and body_pose.shape[0] == 1:
-        if body_pose.shape[-1] == 63 or body_pose.shape[-2:] == (21, 3):
-            body_pose = body_pose[0]
+    # Remove a singleton batch axis only from explicitly batched layouts.
+    # A (1, 21, 3) array is already one frame, not a batch of 21 frames.
+    if (
+        body_pose.ndim == 4
+        and body_pose.shape[0] == 1
+        and body_pose.shape[-2:] == (21, 3)
+    ) or (body_pose.ndim == 3 and body_pose.shape[0] == 1 and body_pose.shape[-1] == 63):
+        body_pose = body_pose[0]
     if body_pose.ndim == 2 and body_pose.shape[1] == 63:
         body_pose = body_pose.reshape(-1, 21, 3)
     elif body_pose.ndim == 3 and body_pose.shape[1:] == (21, 3):

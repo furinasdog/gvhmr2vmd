@@ -59,22 +59,42 @@ jobs:
       - name: Verify release archive
         run: |
           python - <<'PY'
+          import subprocess
           from pathlib import Path
           from zipfile import ZipFile
+
+          from tools.package_addon import get_build_metadata, render_build_info
 
           root = Path("blender_addon/gvhmr_mmd_bridge")
           sources = sorted(root.rglob("*.py"))
           expected = {f"gvhmr_mmd_bridge/{p.relative_to(root).as_posix()}": p for p in sources}
           expected["gvhmr_mmd_bridge/LICENSE"] = Path("LICENSE")
+          metadata = get_build_metadata(Path.cwd())
+          commit = subprocess.check_output(
+              ["git", "rev-parse", "--verify", "HEAD"], text=True
+          ).strip()
+          dirty = bool(subprocess.check_output(
+              ["git", "status", "--porcelain", "--untracked-files=normal"], text=True
+          ).strip())
+          assert metadata.commit == commit, "Build metadata has the wrong Git commit"
+          assert metadata.short_commit == commit[:12], "Build metadata has the wrong short hash"
+          assert metadata.dirty is dirty, "Build metadata has the wrong dirty status"
           with ZipFile("dist/gvhmr_mmd_bridge.zip") as archive:
               assert archive.testzip() is None, "Corrupt ZIP member"
               assert set(archive.namelist()) == set(expected), "Unexpected or missing ZIP members"
+              assert len(archive.namelist()) == len(expected), "Duplicate ZIP members"
               for name, source in expected.items():
                   content = archive.read(name)
-                  assert content == source.read_bytes(), f"Stale ZIP member: {name}"
+                  if source == root / "build_info.py":
+                      expected_content = render_build_info(
+                          source.read_text(encoding="utf-8"), metadata
+                      )
+                  else:
+                      expected_content = source.read_bytes()
+                  assert content == expected_content, f"Stale ZIP member: {name}"
                   if name.endswith(".py"):
                       compile(content, name, "exec")
-          print("Verified add-on source, Python syntax, and license in release ZIP")
+          print("Verified add-on source, Git build identity, Python syntax, and license")
           PY
           cd dist
           sha256sum gvhmr_mmd_bridge.zip > SHA256SUMS

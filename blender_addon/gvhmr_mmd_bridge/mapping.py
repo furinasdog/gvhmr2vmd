@@ -15,6 +15,9 @@ class BoneRule:
 
 # Ordered from roots to leaves. Japanese names are authoritative for MMD;
 # English aliases support models imported from other common toolchains.
+# Prefer the deform shoulder over shoulder-P controls: a shoulder-C inverse
+# helper may cancel P rotation before it reaches the upper arm. P-only rigs
+# remain supported as a fallback.
 BONE_RULES = (
     BoneRule("root", 0, ("センター", "Center", "center", "全ての親", "Root", "root")),
     BoneRule("spine1", 3, ("上半身", "Upper Body", "Spine", "spine")),
@@ -22,22 +25,46 @@ BONE_RULES = (
     BoneRule("spine3", 9, ("上半身2", "Upper Body 2", "Chest", "chest")),
     BoneRule("neck", 12, ("首", "Neck", "neck")),
     BoneRule("head", 15, ("頭", "Head", "head")),
-    BoneRule("left_collar", 13, ("左肩P", "肩P.L", "左肩", "肩.L", "shoulderP_L", "LeftShoulder"), required=False),
+    BoneRule(
+        "left_collar",
+        13,
+        ("左肩", "肩.L", "LeftShoulder", "左肩P", "肩P.L", "shoulderP_L"),
+        required=False,
+    ),
     BoneRule("left_shoulder", 16, ("左腕", "腕.L", "UpperArm_L", "upper_arm.L", "LeftArm")),
     BoneRule("left_elbow", 18, ("左ひじ", "ひじ.L", "左肘", "Elbow_L", "forearm.L", "LeftForeArm")),
     BoneRule("left_wrist", 20, ("左手首", "手首.L", "Wrist_L", "hand.L", "LeftHand")),
-    BoneRule("right_collar", 14, ("右肩P", "肩P.R", "右肩", "肩.R", "shoulderP_R", "RightShoulder"), required=False),
+    BoneRule(
+        "right_collar",
+        14,
+        ("右肩", "肩.R", "RightShoulder", "右肩P", "肩P.R", "shoulderP_R"),
+        required=False,
+    ),
     BoneRule("right_shoulder", 17, ("右腕", "腕.R", "UpperArm_R", "upper_arm.R", "RightArm")),
-    BoneRule("right_elbow", 19, ("右ひじ", "ひじ.R", "右肘", "Elbow_R", "forearm.R", "RightForeArm")),
+    BoneRule(
+        "right_elbow",
+        19,
+        ("右ひじ", "ひじ.R", "右肘", "Elbow_R", "forearm.R", "RightForeArm"),
+    ),
     BoneRule("right_wrist", 21, ("右手首", "手首.R", "Wrist_R", "hand.R", "RightHand")),
     BoneRule("left_hip", 1, ("左足", "足.L", "Leg_L", "thigh.L", "LeftUpLeg")),
     BoneRule("left_knee", 4, ("左ひざ", "ひざ.L", "左膝", "Knee_L", "shin.L", "LeftLeg")),
     BoneRule("left_ankle", 7, ("左足首", "足首.L", "Ankle_L", "foot.L", "LeftFoot")),
-    BoneRule("left_foot", 10, ("左つま先", "つま先.L", "左足先EX", "足先EX.L", "Toe_L", "toe.L", "LeftToeBase"), required=False),
+    BoneRule(
+        "left_foot",
+        10,
+        ("左つま先", "つま先.L", "左足先EX", "足先EX.L", "Toe_L", "toe.L", "LeftToeBase"),
+        required=False,
+    ),
     BoneRule("right_hip", 2, ("右足", "足.R", "Leg_R", "thigh.R", "RightUpLeg")),
     BoneRule("right_knee", 5, ("右ひざ", "ひざ.R", "右膝", "Knee_R", "shin.R", "RightLeg")),
     BoneRule("right_ankle", 8, ("右足首", "足首.R", "Ankle_R", "foot.R", "RightFoot")),
-    BoneRule("right_foot", 11, ("右つま先", "つま先.R", "右足先EX", "足先EX.R", "Toe_R", "toe.R", "RightToeBase"), required=False),
+    BoneRule(
+        "right_foot",
+        11,
+        ("右つま先", "つま先.R", "右足先EX", "足先EX.R", "Toe_R", "toe.R", "RightToeBase"),
+        required=False,
+    ),
 )
 
 RULE_BY_SEMANTIC = {rule.semantic: rule for rule in BONE_RULES}

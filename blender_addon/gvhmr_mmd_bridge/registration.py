@@ -7,7 +7,6 @@ from .operators import GVHMRMMD_OT_apply, GVHMRMMD_OT_restore_ik, GVHMRMMD_OT_va
 from .properties import GVHMRMMDProperties
 from .ui import GVHMRMMD_PT_panel
 
-
 CLASSES = (
     GVHMRMMDProperties,
     GVHMRMMD_OT_validate,

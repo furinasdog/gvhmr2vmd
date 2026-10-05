@@ -9,7 +9,7 @@ from mathutils import Vector
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "blender_addon"))
 
-from gvhmr_mmd_bridge.core import MotionData, SMPL_PARENTS, smpl_global_rotations
+from gvhmr_mmd_bridge.core import SMPL_PARENTS, MotionData, smpl_global_rotations
 from gvhmr_mmd_bridge.mapping import BONE_RULES
 from gvhmr_mmd_bridge.retarget import retarget_motion
 

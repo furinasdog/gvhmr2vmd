@@ -13,7 +13,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "blender_addon"))
 from gvhmr_mmd_bridge.hand_retarget import _flexion_only, _palm_basis, retarget_hands
 from gvhmr_mmd_bridge.mapping import HAND_BONE_RULES
 
-
 # Pure side motion must disappear, while flexion and extension survive.
 rest = Vector((0, 1, 0))
 normal = Vector((0, 0, 1))
@@ -77,7 +76,9 @@ for side in ("left", "right"):
         axes[bone.name] = bone.matrix_local.to_quaternion().inverted() @ hinge
         start, end = rule.landmark_pair
         for frame, amount in enumerate((0.3, 0.7, -0.4)):
-            delta = Quaternion(palm.col[2], 0.35) @ Quaternion(hinge, amount * int(rule.semantic[-1]))
+            delta = Quaternion(palm.col[2], 0.35) @ Quaternion(
+                hinge, amount * int(rule.semantic[-1])
+            )
             direction = palm.inverted() @ (delta @ rest)
             landmarks[frame, end] = landmarks[frame, start] + np.array(direction)
     setattr(motion, f"{side}_hand_landmarks", landmarks)

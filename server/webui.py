@@ -13,8 +13,12 @@ from pathlib import Path
 
 import gradio as gr
 
-from gvhmr_export import convert_pt_to_npz
-
+if __package__:
+    from .gvhmr_export import convert_pt_to_npz
+    from .progress import GVHMRProgressParser, StageUpdate, iter_log_records
+else:
+    from gvhmr_export import convert_pt_to_npz
+    from progress import GVHMRProgressParser, StageUpdate, iter_log_records
 
 PROJ_ROOT = Path(__file__).parent.resolve()
 CHECKPOINT_ROOT = PROJ_ROOT / "inputs" / "checkpoints"
@@ -34,9 +38,27 @@ MODELS = [
     ("body_models/smpl/SMPL_NEUTRAL.pkl", None, None, "body_models/smpl", "SMPL_NEUTRAL.pkl"),
     ("body_models/smplx/SMPLX_NEUTRAL.npz", None, None, "body_models/smplx", "SMPLX_NEUTRAL.npz"),
     ("dpvo/dpvo.pth", "camenduru/GVHMR", "dpvo/dpvo.pth", "dpvo", "dpvo.pth"),
-    ("gvhmr/gvhmr_siga24_release.ckpt", "camenduru/GVHMR", "gvhmr/gvhmr_siga24_release.ckpt", "gvhmr", "gvhmr_siga24_release.ckpt"),
-    ("hmr2/epoch=10-step=25000.ckpt", "camenduru/GVHMR", "hmr2/epoch%3D10-step%3D25000.ckpt", "hmr2", "epoch=10-step=25000.ckpt"),
-    ("vitpose/vitpose-h-multi-coco.pth", "camenduru/GVHMR", "vitpose/vitpose-h-multi-coco.pth", "vitpose", "vitpose-h-multi-coco.pth"),
+    (
+        "gvhmr/gvhmr_siga24_release.ckpt",
+        "camenduru/GVHMR",
+        "gvhmr/gvhmr_siga24_release.ckpt",
+        "gvhmr",
+        "gvhmr_siga24_release.ckpt",
+    ),
+    (
+        "hmr2/epoch=10-step=25000.ckpt",
+        "camenduru/GVHMR",
+        "hmr2/epoch%3D10-step%3D25000.ckpt",
+        "hmr2",
+        "epoch=10-step=25000.ckpt",
+    ),
+    (
+        "vitpose/vitpose-h-multi-coco.pth",
+        "camenduru/GVHMR",
+        "vitpose/vitpose-h-multi-coco.pth",
+        "vitpose",
+        "vitpose-h-multi-coco.pth",
+    ),
     ("yolo/yolov8x.pt", "camenduru/GVHMR", "yolo/yolov8x.pt", "yolo", "yolov8x.pt"),
 ]
 
@@ -52,7 +74,10 @@ MIN_SIZES_MB = {
 
 
 def _is_valid_model(filepath: Path, filename: str) -> bool:
-    return filepath.is_file() and filepath.stat().st_size >= MIN_SIZES_MB.get(filename, 1) * 1024 * 1024
+    return (
+        filepath.is_file()
+        and filepath.stat().st_size >= MIN_SIZES_MB.get(filename, 1) * 1024 * 1024
+    )
 
 
 def check_models_ready() -> list[str]:
@@ -156,6 +181,26 @@ def collect_output_files(output_dir: Path) -> dict:
     }
 
 
+def _run_logged_process(command, progress, raw_log, parser=None):
+    """Stream both stdout and stderr without changing the external program."""
+    tail = deque(maxlen=40)
+    with subprocess.Popen(
+        command,
+        cwd=str(PROJ_ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        env={**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUNBUFFERED": "1"},
+        bufsize=0,
+    ) as process:
+        assert process.stdout is not None
+        for line in iter_log_records(process.stdout, raw_log):
+            print(line, flush=True)
+            tail.append(line)
+            if parser is not None and (update := parser.parse(line)) is not None:
+                update.report(progress)
+        return process.wait(), list(tail)
+
+
 def run_gvhmr(
     video_path,
     static_cam,
@@ -171,28 +216,45 @@ def run_gvhmr(
     video_path = Path(video_path)
     if not video_path.is_file():
         return None, None, None, f"找不到视频：{video_path}"
+    if recognize_hands and not export_npz:
+        return None, None, None, "手部识别需要启用 NPZ 导出；或关闭手部识别后只导出原始姿态。"
     if not INFERENCE_LOCK.acquire(blocking=False):
         return None, None, None, "GPU 正在处理另一项任务，请稍后再试。"
 
+    files = {"pt": None, "npz": None, "video": None}
+    log = []
+    log_path = None
     try:
+        StageUpdate("check", "检查模型与输入").report(progress)
         missing = check_models_ready()
         if missing:
-            progress(0.0, desc="下载缺失模型…")
-            download_log = []
+            StageUpdate("models", "下载缺失模型").report(progress)
             for line in download_models_yield():
-                download_log.append(line)
+                log.append(line)
                 if line.startswith("Failed"):
-                    return None, None, None, "\n".join(download_log)
+                    StageUpdate("failed", "模型准备失败").report(progress)
+                    return None, None, None, "\n".join(log)
             missing = check_models_ready()
             if missing:
-                return None, None, None, (
-                    "仍缺少需要手动提供的模型文件：\n"
-                    + "\n".join(f"- {item}" for item in missing)
-                    + "\n请按 GVHMR 官方安装文档取得相应许可和文件。"
+                StageUpdate("failed", "缺少模型，任务未开始").report(progress)
+                return (
+                    None,
+                    None,
+                    None,
+                    (
+                        "仍缺少需要手动提供的模型文件：\n"
+                        + "\n".join(f"- {item}" for item in missing)
+                        + "\n请按 GVHMR 官方安装文档取得相应许可和文件。"
+                    ),
                 )
 
+        output_dir = OUTPUT_ROOT / video_path.stem
+        output_dir.mkdir(parents=True, exist_ok=True)
+        had_pose_cache = (output_dir / "hmr4d_results.pt").is_file()
+        log_path = output_dir / "webui_process.log"
         command = [
             sys.executable,
+            "-u",
             str(PROJ_ROOT / "tools" / "demo" / "demo.py"),
             f"--video={video_path}",
         ]
@@ -204,74 +266,97 @@ def run_gvhmr(
             command.append(f"--f_mm={int(focal_mm)}")
         if not render_preview:
             command.append("--skip_render")
+            log.append("预览渲染已关闭。")
+        if not recognize_hands:
+            log.append("手部识别已关闭。")
 
-        progress(0.12, desc="GVHMR 推理中…")
-        tail = deque(maxlen=40)
-        process = subprocess.Popen(
-            command,
-            cwd=str(PROJ_ROOT),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            errors="replace",
-            bufsize=1,
-        )
-        assert process.stdout is not None
-        for line in process.stdout:
-            print(line.rstrip(), flush=True)
-            tail.append(line.rstrip())
-        return_code = process.wait()
-
-        output_dir = OUTPUT_ROOT / video_path.stem
+        parser = GVHMRProgressParser()
+        StageUpdate("start", "启动 GVHMR，等待阶段日志").report(progress)
+        with log_path.open("wb") as raw_log:
+            return_code, tail = _run_logged_process(command, progress, raw_log, parser)
+        log.extend(f"阶段：{stage}" for stage in parser.history)
         files = collect_output_files(output_dir)
+        if not render_preview:
+            files["video"] = None
+        # Do not present a previous NPZ as a successful export from this run.
+        files["npz"] = None
         if not files["pt"]:
-            details = "\n".join(tail)
-            return None, None, None, f"推理失败（退出码 {return_code}）。\n{details}"
+            StageUpdate("failed", "GVHMR 未生成姿态结果，任务失败").report(progress)
+            log.append(f"推理失败（退出码 {return_code}）。\n" + "\n".join(tail))
+            log.append(f"完整进程日志：{log_path}")
+            return None, None, None, "\n".join(log)
 
-        log = []
-        if return_code != 0:
-            log.append(f"渲染阶段返回 {return_code}，但姿态结果已生成。")
+        failed = return_code != 0
+        if failed:
+            log.append(f"GVHMR 进程失败（退出码 {return_code}），保留可用姿态文件。")
+            if had_pose_cache:
+                log.append("姿态文件可能来自已有缓存，不能视为本次成功输出。")
+            log.extend(tail)
+        elif had_pose_cache and not parser.inference_started:
+            log.append("GVHMR 复用了已有姿态结果（未收到重新推理日志）。")
+        if render_preview and not files["video"]:
+            failed = True
+            log.append("预览渲染未生成视频，身体姿态仍可下载。")
         if export_npz:
-            progress(0.94, desc="导出 Blender NPZ…")
+            StageUpdate("export", "导出 Blender NPZ").report(progress)
             try:
-                files["npz"] = convert_pt_to_npz(
-                    files["pt"],
-                    output_dir / "gvhmr_motion.npz",
-                    fps=30.0,
-                )
+                exported = convert_pt_to_npz(files["pt"], output_dir / "gvhmr_motion.npz", fps=30.0)
+                if not Path(exported).is_file():
+                    raise RuntimeError("导出器未生成 NPZ 文件")
+                files["npz"] = exported
                 log.append("已导出 Blender 安全格式 NPZ。")
             except Exception as exc:
+                failed = True
                 log.append(f"NPZ 导出失败：{exc}")
 
         if recognize_hands and files["npz"]:
-            progress(0.96, desc="识别双手与手指动作…")
+            StageUpdate("hands", "准备手部模型").report(progress)
             try:
                 ensure_hand_model()
                 normalized_video = output_dir / "0_input_video.mp4"
                 hand_video = normalized_video if normalized_video.is_file() else video_path
                 hand_command = [
                     sys.executable,
+                    "-u",
                     str(PROJ_ROOT / "hand_pose_mediapipe.py"),
-                    "--video", str(hand_video),
-                    "--vitpose", str(output_dir / "preprocess" / "vitpose.pt"),
-                    "--model", str(HAND_MODEL),
-                    "--motion-npz", str(files["npz"]),
+                    "--video",
+                    str(hand_video),
+                    "--vitpose",
+                    str(output_dir / "preprocess" / "vitpose.pt"),
+                    "--model",
+                    str(HAND_MODEL),
+                    "--motion-npz",
+                    str(files["npz"]),
                 ]
-                hand_process = subprocess.run(
-                    hand_command,
-                    cwd=str(PROJ_ROOT),
-                    capture_output=True,
-                    text=True,
-                )
-                if hand_process.returncode != 0:
-                    raise RuntimeError((hand_process.stdout + hand_process.stderr)[-1500:])
-                log.append(hand_process.stdout.strip())
+                StageUpdate("hands", "手部识别（未提供逐帧计数）").report(progress)
+                with log_path.open("ab") as raw_log:
+                    raw_log.write(b"\n--- Hand recognition ---\n")
+                    hand_code, hand_tail = _run_logged_process(hand_command, progress, raw_log)
+                if hand_code != 0:
+                    raise RuntimeError(f"退出码 {hand_code}\n" + "\n".join(hand_tail))
+                log.extend(hand_tail)
+                log.append("手部识别完成。")
             except Exception as exc:
+                failed = True
                 log.append(f"手部识别失败，身体动作仍可使用：{exc}")
+        elif recognize_hands:
+            failed = True
+            log.append("手部识别未执行：没有本次成功导出的 NPZ。")
 
         save_results_meta(output_dir, files)
-        progress(1.0, desc="完成")
-        log.append("处理完成。")
+        if failed:
+            StageUpdate("failed", "部分步骤失败，请查看日志").report(progress)
+            log.append("处理未全部成功；已保留可用结果。")
+        else:
+            progress(1.0, desc="完成：所有已启用步骤均成功")
+            log.append("处理完成。")
+        log.append(f"完整进程日志：{log_path}")
+        return files["pt"], files["npz"], files["video"], "\n".join(log)
+    except Exception as exc:
+        StageUpdate("failed", "处理失败，请查看日志").report(progress)
+        log.append(f"处理失败：{exc}")
+        if log_path is not None:
+            log.append(f"完整进程日志：{log_path}")
         return files["pt"], files["npz"], files["video"], "\n".join(log)
     finally:
         INFERENCE_LOCK.release()
@@ -310,7 +395,7 @@ def build_ui():
                     )
                     recognize_hands = gr.Checkbox(
                         label="识别双手与手指动作",
-                        info="使用腕部裁剪和 MediaPipe 三维手部关键点",
+                        info="需要启用 NPZ 导出；使用腕部裁剪和 MediaPipe 三维手部关键点",
                         value=True,
                     )
                 run_button = gr.Button("开始识别", variant="primary", size="lg")
@@ -318,14 +403,23 @@ def build_ui():
                 render_output = gr.Video(label="动作预览", height=400)
                 npz_output = gr.File(label="下载 gvhmr_motion.npz（Blender 插件）")
                 pt_output = gr.File(label="下载原始 hmr4d_results.pt")
-                log_output = gr.Textbox(label="状态", lines=5, interactive=False)
+                gr.Markdown(
+                    "进度条显示**当前阶段**的真实计数；没有总量时仅显示阶段，完整成功后才显示完成。"
+                )
+                log_output = gr.Textbox(label="状态与阶段日志", lines=8, interactive=False)
 
         with gr.Accordion("模型权重", open=False):
             model_status = gr.Textbox(label="状态", interactive=False)
             download_button = gr.Button("检查 / 下载模型", size="sm")
 
         def on_run(
-            video, static, dpvo, focal, npz, preview_enabled, hands_enabled,
+            video,
+            static,
+            dpvo,
+            focal,
+            npz,
+            preview_enabled,
+            hands_enabled,
             progress=gr.Progress(),
         ):
             pt, npz_file, preview, log = run_gvhmr(

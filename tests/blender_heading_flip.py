@@ -16,16 +16,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "blender_addon"))
 sys.path.insert(0, str(ROOT / "tests"))
 
-from blender_arm_retarget import make_rig
-from gvhmr_mmd_bridge.core import (
-    MotionData,
+from blender_arm_retarget import make_rig  # noqa: E402
+from gvhmr_mmd_bridge.core import (  # noqa: E402
     SMPL_PARENTS,
+    MotionData,
     blender_translation,
     load_motion,
     smpl_global_rotations,
 )
-from gvhmr_mmd_bridge.retarget import retarget_motion
-
+from gvhmr_mmd_bridge.retarget import retarget_motion  # noqa: E402
 
 HALF_TURN = np.diag([-1., -1., 1.])
 

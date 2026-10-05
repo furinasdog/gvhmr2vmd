@@ -8,6 +8,8 @@ GVHMR to MMD Bridge converts world-grounded body motion from
 
 Highlights:
 
+- optional body/trajectory smoothing, source clip trimming, and synchronized playback speed;
+- in-place and fixed-position modes with retained previous Actions;
 - world-space body motion, root translation, and timeline FPS;
 - Japanese MMD bone names and mmd_tools `.L/.R` names;
 - automatic MMD A-pose to SMPL T-pose upper-arm correction;
@@ -49,7 +51,28 @@ ruff check .
 python tools/package_addon.py
 ```
 
-The Blender and real-PMX integration commands are documented in the manuals. Local PMX files,
+Run the Blender regressions with your Blender 4.5 executable (repeat for each script):
+
+```bash
+blender --background --factory-startup --python-exit-code 1 --python tests/blender_processing.py
+blender --background --factory-startup --python-exit-code 1 --python tests/blender_arm_retarget.py
+blender --background --factory-startup --python-exit-code 1 --python tests/blender_finger_limits.py
+blender --background --factory-startup --python-exit-code 1 --python tests/blender_heading_flip.py
+blender --background --factory-startup --python-exit-code 1 --python tests/blender_shoulder_helpers.py
+```
+
+For an optional check against your own assets with mmd_tools installed:
+
+```bash
+blender --background --factory-startup --python-exit-code 1 \
+  --python tests/blender_mmd_shoulder.py -- --pmx /path/model.pmx --motion /path/motion.npz
+```
+
+`make build` embeds the current Git commit and dirty state in the ZIP; the Blender panel displays
+them below the status message. Packaging does not modify the source metadata file.
+
+The unit tests also run in GitHub Actions on Python 3.10 and 3.12. Blender tests use synthetic
+rigs; they do not replace visual checks with your own PMX and video. Local PMX files,
 videos, checkpoints, inference outputs, and generated add-on archives are ignored by Git.
 
 ## Releases

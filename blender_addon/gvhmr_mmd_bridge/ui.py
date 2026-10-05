@@ -2,6 +2,8 @@
 
 import bpy
 
+from .build_info import build_label
+
 
 class GVHMRMMD_PT_panel(bpy.types.Panel):
     bl_label = "GVHMR → MMD"
@@ -22,6 +24,21 @@ class GVHMRMMD_PT_panel(bpy.types.Panel):
         box.label(text="重定向设置")
         box.prop(props, "start_frame")
         box.prop(props, "sync_fps")
+
+        clip = layout.box()
+        clip.label(text="片段与速度")
+        clip.prop(props, "source_start")
+        clip.prop(props, "source_end")
+        clip.prop(props, "speed")
+
+        quality = layout.box()
+        quality.label(text="动作优化（需重新应用）")
+        quality.prop(props, "rotation_smoothing")
+        quality.prop(props, "translation_smoothing")
+        quality.prop(props, "root_motion")
+
+        box = layout.box()
+        box.label(text="骨架与手指")
         box.prop(props, "auto_scale")
         if not props.auto_scale:
             box.prop(props, "manual_scale")
@@ -44,3 +61,8 @@ class GVHMRMMD_PT_panel(bpy.types.Panel):
         if props.status:
             status_box = layout.box()
             status_box.label(text=props.status, icon="INFO")
+
+        layout.separator()
+        row = layout.row()
+        row.enabled = False
+        row.label(text=build_label(), icon="INFO")

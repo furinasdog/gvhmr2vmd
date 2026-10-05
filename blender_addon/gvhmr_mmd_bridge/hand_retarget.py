@@ -98,7 +98,9 @@ def retarget_hands(
             if rule.side == side and rule.semantic in hand_mapping
         ]
         rest_rotations = {
-            rule.semantic: armature.data.bones[hand_mapping[rule.semantic]].matrix_local.to_quaternion()
+            rule.semantic: (
+                armature.data.bones[hand_mapping[rule.semantic]].matrix_local.to_quaternion()
+            )
             for rule in side_rules
         }
         rest_directions = {
@@ -116,12 +118,16 @@ def retarget_hands(
             valid_frame = True
             for rule in side_rules:
                 start, end = rule.landmark_pair
-                direction = Vector((landmarks[frame_index, end] - landmarks[frame_index, start]).tolist())
+                direction = Vector(
+                    (landmarks[frame_index, end] - landmarks[frame_index, start]).tolist()
+                )
                 if direction.length <= 1e-8:
                     valid_frame = False
                     break
                 desired = palm_basis @ direction.normalized()
-                global_deltas[rule.semantic] = rest_directions[rule.semantic].rotation_difference(desired)
+                global_deltas[rule.semantic] = rest_directions[rule.semantic].rotation_difference(
+                    desired
+                )
             if not valid_frame:
                 continue
 

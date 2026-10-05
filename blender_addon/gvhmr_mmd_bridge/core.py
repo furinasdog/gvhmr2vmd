@@ -7,7 +7,6 @@ from pathlib import Path
 
 import numpy as np
 
-
 FORMAT_VERSION = 2
 SUPPORTED_FORMAT_VERSIONS = {1, 2}
 
@@ -83,6 +82,35 @@ def _numeric_array(value: np.ndarray, name: str) -> np.ndarray:
     return value
 
 
+def _numeric_scalar(value: np.ndarray, name: str) -> float:
+    value = _numeric_array(value, name)
+    if value.size != 1:
+        raise ValueError(f"{name} must contain exactly one numeric value, got shape {value.shape}")
+    return float(value.reshape(-1)[0])
+
+
+def _string_scalar(value: np.ndarray, name: str) -> str:
+    value = np.asarray(value)
+    if value.size != 1 or value.dtype.kind not in "SU":
+        raise ValueError(f"{name} must contain exactly one string value")
+    item = value.reshape(-1)[0]
+    if isinstance(item, bytes):
+        try:
+            return item.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError(f"{name} must contain a UTF-8 string") from exc
+    return str(item)
+
+
+def _frame_vectors(value: np.ndarray, name: str) -> np.ndarray:
+    value = _numeric_array(value, name)
+    if value.ndim == 3 and value.shape[0] == 1:
+        value = value[0]
+    if value.ndim != 2 or value.shape[1] != 3:
+        raise ValueError(f"{name} must have shape [F,3] or [1,F,3], got {value.shape}")
+    return value
+
+
 def load_motion(path: str | Path) -> MotionData:
     """Load and validate a safe GVHMR motion NPZ (pickle is always disabled)."""
     path = Path(path)
@@ -91,13 +119,19 @@ def load_motion(path: str | Path) -> MotionData:
     if not path.is_file():
         raise ValueError(f"Motion file not found: {path}")
 
-    with np.load(path, allow_pickle=False) as data:
+    archive = np.load(path, allow_pickle=False)
+    if not isinstance(archive, np.lib.npyio.NpzFile):
+        raise ValueError("Motion file must be a NumPy NPZ archive")
+    with archive as data:
         required = {"format_version", "body_pose", "global_orient", "transl", "fps"}
         missing = sorted(required.difference(data.files))
         if missing:
             raise ValueError(f"Missing NPZ fields: {', '.join(missing)}")
 
-        version = int(np.asarray(data["format_version"]).reshape(-1)[0])
+        version_value = _numeric_scalar(data["format_version"], "format_version")
+        if not version_value.is_integer():
+            raise ValueError("format_version must be an integer")
+        version = int(version_value)
         if version not in SUPPORTED_FORMAT_VERSIONS:
             raise ValueError(
                 f"Unsupported motion format version {version}; "
@@ -105,22 +139,18 @@ def load_motion(path: str | Path) -> MotionData:
             )
 
         body_pose = _numeric_array(data["body_pose"], "body_pose")
-        if body_pose.ndim in (3, 4) and body_pose.shape[0] == 1:
-            if body_pose.shape[-1] == 63 or body_pose.shape[-2:] == (21, 3):
-                body_pose = body_pose[0]
+        # Only an extra batch dimension may be removed. [1,21,3] is one frame.
+        if body_pose.ndim == 4 and body_pose.shape[0] == 1:
+            body_pose = body_pose[0]
+        elif body_pose.ndim == 3 and body_pose.shape[0] == 1 and body_pose.shape[2] == 63:
+            body_pose = body_pose[0]
         if body_pose.ndim == 2 and body_pose.shape[1] == 63:
             body_pose = body_pose.reshape(-1, 21, 3)
         if body_pose.ndim != 3 or body_pose.shape[1:] != (21, 3):
             raise ValueError(f"body_pose must have shape [F,21,3] or [F,63], got {body_pose.shape}")
 
-        global_orient = _numeric_array(data["global_orient"], "global_orient")
-        if global_orient.ndim == 3 and global_orient.shape[0] == 1:
-            global_orient = global_orient[0]
-        global_orient = global_orient.reshape(-1, 3)
-        transl = _numeric_array(data["transl"], "transl")
-        if transl.ndim == 3 and transl.shape[0] == 1:
-            transl = transl[0]
-        transl = transl.reshape(-1, 3)
+        global_orient = _frame_vectors(data["global_orient"], "global_orient")
+        transl = _frame_vectors(data["transl"], "transl")
 
         frame_count = body_pose.shape[0]
         if global_orient.shape[0] != frame_count or transl.shape[0] != frame_count:
@@ -132,13 +162,15 @@ def load_motion(path: str | Path) -> MotionData:
         if frame_count == 0:
             raise ValueError("Motion contains no frames")
 
-        fps = float(np.asarray(data["fps"]).reshape(-1)[0])
-        if not np.isfinite(fps) or not 1.0 <= fps <= 240.0:
+        fps = _numeric_scalar(data["fps"], "fps")
+        if not 1.0 <= fps <= 240.0:
             raise ValueError(f"Invalid FPS: {fps}")
 
         betas = None
         if "betas" in data.files:
             betas = _numeric_array(data["betas"], "betas").reshape(-1)
+            if betas.size == 0:
+                raise ValueError("betas must not be empty")
 
         static_confidence = None
         if "static_confidence" in data.files:
@@ -147,18 +179,22 @@ def load_motion(path: str | Path) -> MotionData:
             )
             if static_confidence.ndim == 3 and static_confidence.shape[0] == 1:
                 static_confidence = static_confidence[0]
+            if static_confidence.ndim not in (1, 2) or static_confidence.size == 0:
+                raise ValueError("static_confidence must have shape [F] or [F,C]")
             if static_confidence.shape[0] != frame_count:
                 raise ValueError("static_confidence frame count does not match body_pose")
 
         source_name = ""
         if "source_name" in data.files:
-            source_name = str(np.asarray(data["source_name"]).reshape(-1)[0])
+            source_name = _string_scalar(data["source_name"], "source_name")
 
         hand_values = {}
         for side in ("left", "right"):
             landmarks_key = f"{side}_hand_landmarks"
             confidence_key = f"{side}_hand_confidence"
             landmarks = confidence = None
+            if confidence_key in data.files and landmarks_key not in data.files:
+                raise ValueError(f"Missing NPZ field: {landmarks_key}")
             if landmarks_key in data.files:
                 landmarks = _numeric_array(data[landmarks_key], landmarks_key)
                 if landmarks.shape != (frame_count, 21, 3):
@@ -167,7 +203,7 @@ def load_motion(path: str | Path) -> MotionData:
                     )
                 if confidence_key not in data.files:
                     raise ValueError(f"Missing NPZ field: {confidence_key}")
-                confidence = _numeric_array(data[confidence_key], confidence_key).reshape(-1)
+                confidence = _numeric_array(data[confidence_key], confidence_key)
                 if confidence.shape != (frame_count,):
                     raise ValueError(
                         f"{confidence_key} must have shape [F], got {confidence.shape}"
@@ -179,7 +215,7 @@ def load_motion(path: str | Path) -> MotionData:
 
         hand_backend = ""
         if "hand_backend" in data.files:
-            hand_backend = str(np.asarray(data["hand_backend"]).reshape(-1)[0])
+            hand_backend = _string_scalar(data["hand_backend"], "hand_backend")
 
     return MotionData(
         body_pose=body_pose,

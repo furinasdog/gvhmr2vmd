@@ -25,6 +25,16 @@ Quick start:
 3. Install the ZIP in Blender 4.5 and import the PMX with mmd_tools.
 4. Select the NPZ and armature in the “GVHMR MMD” panel, validate, and apply.
 
+## Updating an existing WebUI
+
+Update **both `server/webui.py` and `server/progress.py`**, placing them beside each other in
+your GVHMR directory, then restart the WebUI. Pulling this bridge repository, running
+`make build`, or installing the Blender ZIP does not update files previously copied into GVHMR.
+
+Follow the [server upgrade commands and import check](server/README.md#upgrade-an-existing-webui).
+For `ModuleNotFoundError: No module named 'progress'`, copy this repository's `server/progress.py`
+beside `webui.py`; **do not run `pip install progress`**. Progress monitoring needs no upstream patch.
+
 > [!IMPORTANT]
 > This repository is GPL-3.0-or-later, while the upstream GVHMR license restricts use to
 > educational, research, and non-profit purposes. SMPL, SMPL-X, MANO, model checkpoints,

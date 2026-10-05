@@ -90,11 +90,20 @@ cp "$BRIDGE_ROOT/server/gvhmr_export.py" "$GVHMR_ROOT/"
 cp "$BRIDGE_ROOT/server/webui.py" "$GVHMR_ROOT/"
 cp "$BRIDGE_ROOT/server/progress.py" "$GVHMR_ROOT/"
 cp "$BRIDGE_ROOT/server/hand_pose_mediapipe.py" "$GVHMR_ROOT/"
+```
+
+Keep all four files from the same source commit together in the GVHMR directory.
+`progress.py` is a required companion to `webui.py`, not a dependency installed with pip.
+
+Progress monitoring does not require an upstream patch. Only if you want to disable preview
+rendering and your GVHMR version lacks `--skip_render`, optionally apply:
+
+```bash
 git -C "$GVHMR_ROOT" apply "$BRIDGE_ROOT/server/patches/gvhmr_demo_skip_render.patch"
 ```
 
-The patch only adds `--skip_render`; it does not alter the network or official `.pt` data. Skip
-it if your upstream version already offers equivalent functionality.
+The optional patch only adds `--skip_render`; it does not alter the network or official `.pt`
+data. Keep preview rendering enabled on unpatched versions that lack this option.
 
 ### 4.3 Install WebUI and hand dependencies
 
@@ -123,6 +132,19 @@ PY
 
 The tested combination is NumPy 1.23.5, OpenCV 4.11.0.86, MediaPipe 0.10.14. If your upstream
 environment differs, preserve a working GVHMR stack and use a separate hand environment.
+
+### 4.4 Upgrade an existing WebUI
+
+Stop the running WebUI with `Ctrl+C`, then follow the
+[server upgrade commands and import check](../server/README.md#upgrade-an-existing-webui).
+They update this bridge checkout, copy all four integration files from the same revision,
+verify the progress parser import, and restart the WebUI in the GVHMR environment.
+
+**Do not replace only `webui.py`: it requires `progress.py` beside it.** Pulling this repository,
+running `make build`, or installing the Blender ZIP does not update files already copied into
+GVHMR. For manual transfers, upload `webui.py`, `progress.py`, `gvhmr_export.py`, and
+`hand_pose_mediapipe.py` together, then run the documented check in their destination directory.
+No upstream patch or model reinstallation is needed for this progress update.
 
 ## 5. Start and access the WebUI
 
@@ -337,6 +359,19 @@ Check the PMX import scale. Start with automatic scale; disable it and tune the 
 when necessary.
 
 ### WebUI does not start
+
+For `ModuleNotFoundError: No module named 'progress'`, the WebUI cannot import its companion
+module and inference has not started. Copy this repository's `server/progress.py` beside
+the `webui.py` you run; use the [upgrade procedure](../server/README.md#upgrade-an-existing-webui)
+to keep the integration files at the same revision. **Do not run `pip install progress`**;
+the PyPI package is unrelated. Before restarting, run this inside the GVHMR directory:
+
+```bash
+python -c "import progress; from progress import GVHMRProgressParser, StageUpdate, iter_log_records; print(progress.__file__)"
+```
+
+The printed path must point to your GVHMR copy of `progress.py`. If it does not, check the
+file location and Python environment before restarting.
 
 Inspect the WebUI startup log and verify checkpoints, Gradio, and the port. A public bind
 requires authentication.

@@ -25,6 +25,16 @@ MMD 骨架。
 3. 在 Blender 4.5 中从磁盘安装 ZIP，并用 mmd_tools 导入 PMX。
 4. 在“GVHMR MMD”面板选择 NPZ 和 Armature，检查映射后应用动作。
 
+## 升级已有 WebUI
+
+请**同时更新 `server/webui.py` 和 `server/progress.py`**，将它们放到 GVHMR 的同一目录，
+然后重启 WebUI。只拉取本仓库、执行 `make build` 或安装 Blender 插件 ZIP，
+不会更新之前复制到 GVHMR 的文件。
+
+可直接按[服务器升级命令与导入检查](server/README.md#升级已有-webui)操作。
+若启动时报 `ModuleNotFoundError: No module named 'progress'`，把本仓库的 `server/progress.py`
+复制到 `webui.py` 旁边；**不要执行 `pip install progress`**。进度监控无需修改 GVHMR 源码或应用上游补丁。
+
 > [!IMPORTANT]
 > 本仓库代码采用 GPL-3.0-or-later，但 GVHMR 上游许可证仅允许教育、研究和非营利用途。
 > SMPL、SMPL-X、MANO、模型权重以及 PMX 模型均有各自许可，且不包含在本仓库中。

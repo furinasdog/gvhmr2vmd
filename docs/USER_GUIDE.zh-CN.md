@@ -89,8 +89,20 @@ cp "$BRIDGE_ROOT/server/gvhmr_export.py" "$GVHMR_ROOT/"
 cp "$BRIDGE_ROOT/server/webui.py" "$GVHMR_ROOT/"
 cp "$BRIDGE_ROOT/server/progress.py" "$GVHMR_ROOT/"
 cp "$BRIDGE_ROOT/server/hand_pose_mediapipe.py" "$GVHMR_ROOT/"
+```
+
+这四个文件应来自同一提交，并放在 GVHMR 的同一目录。`progress.py` 是 `webui.py`
+必需的配套文件，不是通过 pip 安装的依赖。
+
+进度监控不需要修改上游。只有需要关闭预览渲染、且当前 GVHMR 不支持 `--skip_render`
+时，才可选应用以下补丁：
+
+```bash
 git -C "$GVHMR_ROOT" apply "$BRIDGE_ROOT/server/patches/gvhmr_demo_skip_render.patch"
 ```
+
+该可选补丁只增加 `--skip_render`，不改变网络或官方 `.pt` 数据。
+未打补丁且不支持此选项的版本应保持预览渲染开启。
 
 ### 4.3 安装 WebUI 与手部依赖
 
@@ -119,6 +131,17 @@ PY
 
 经过验证的组合为 NumPy 1.23.5、OpenCV 4.11.0.86、MediaPipe 0.10.14。若你的官方
 GVHMR 环境使用其他版本，优先保持 GVHMR 可用，并为手部模块建立独立环境。
+
+### 4.4 升级已有 WebUI
+
+先按 `Ctrl+C` 停止旧 WebUI，再按[服务器升级命令与导入检查](../server/README.md#升级已有-webui)
+操作。该流程更新本项目 checkout，将同一版本的四个集成文件复制到 GVHMR，验证进度解析模块
+能正常导入，然后在 GVHMR 环境中重启 WebUI。
+
+**不要只替换 `webui.py`：它需要同目录下的 `progress.py`。** 只拉取本仓库、执行 `make build`
+或安装 Blender 插件 ZIP，不会更新之前复制到 GVHMR 的文件。手动上传时，请一起上传
+`webui.py`、`progress.py`、`gvhmr_export.py` 和 `hand_pose_mediapipe.py`，并在目标目录执行
+文档中的导入检查。此次进度更新不需要上游补丁或重新安装模型。
 
 ## 5. 启动和访问 WebUI
 
@@ -321,6 +344,17 @@ PMX 静止姿态、骨骼滚转角、A-Pose 校正以及肩 C 约束保持不变
 检查模型导入比例。先使用自动比例；若异常，关闭自动比例并逐步调整手动比例。
 
 ### WebUI 无法启动
+
+若报 `ModuleNotFoundError: No module named 'progress'`，说明 WebUI 无法导入配套模块，
+尚未开始推理。把本仓库的 `server/progress.py` 放到实际运行的 `webui.py` 旁边，
+按[升级步骤](../server/README.md#升级已有-webui)确保集成文件版本一致。
+**不要执行 `pip install progress`**，PyPI 同名包与本项目无关。重启前在 GVHMR 目录执行：
+
+```bash
+python -c "import progress; from progress import GVHMRProgressParser, StageUpdate, iter_log_records; print(progress.__file__)"
+```
+
+输出应指向 GVHMR 目录下的 `progress.py`。若不是，先检查文件位置和当前 Python 环境再重启。
 
 查看 WebUI 启动日志，检查权重、Gradio 和端口。公网监听必须配置认证。
 
